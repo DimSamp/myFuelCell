@@ -156,6 +156,24 @@ public:
                 return nCells_;
             }
 
+            //- Number of electron cells (offset of the ion unknowns)
+            label nElectron() const
+            {
+                return nE_;
+            }
+
+            //- Electron region
+            const regionTypes::electric& electron() const
+            {
+                return eR_;
+            }
+
+            //- Ion region
+            const regionTypes::electric& ion() const
+            {
+                return iR_;
+            }
+
             //- Ion cells of the pairs
             const labelList& pairI() const
             {
@@ -191,6 +209,12 @@ public:
                 const scalarField& etaE
             );
 
+            //- Right-hand side c of a unit value (1 V) on a fixed-value
+            //  patch of the electron region, all other sources off:
+            //  b0 = b0' + V c. Taken from the boundary coefficients of the
+            //  same laplacian assembly
+            tmp<scalarField> unitSource(const label patchi) const;
+
             //- Current potentials as one vector [phiE; phiI]
             tmp<scalarField> psi() const;
 
@@ -199,7 +223,8 @@ public:
             (
                 scalarField& psi,
                 const scalarField& rhs,
-                const dictionary& solverControls
+                const dictionary& solverControls,
+                const word& fieldName = "phiCoupled"
             ) const;
 
             //- Set the internal potentials from [phiE; phiI] and correct the

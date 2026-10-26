@@ -41,14 +41,15 @@ const Foam::Enum<Foam::electricControl::galvanostaticMode>
 Foam::electricControl::galvanostaticModeNames
 ({
     { galvanostaticMode::explicitUpdate, "explicit" },
+    { galvanostaticMode::implicitUpdate, "implicit" },
 });
 
 
 // * * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * //
 
-Foam::scalar Foam::electricControl::ibar() const
+Foam::scalar Foam::electricControl::zoneMean(const scalarField& J) const
 {
-    const scalarField& source = eR_.j_;
+    const scalarField& source = J;
     const scalarField& volume = eR_.V();
 
     scalar iDot(0.0);
@@ -77,6 +78,18 @@ Foam::scalar Foam::electricControl::ibar() const
 }
 
 
+Foam::scalar Foam::electricControl::ibar() const
+{
+    return zoneMean(eR_.j_);
+}
+
+
+void Foam::electricControl::setPatchValue(const scalar V)
+{
+    eR_.phi_.boundaryFieldRef()[patchID_] == V;
+}
+
+
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 Foam::electricControl::electricControl
@@ -94,7 +107,13 @@ Foam::electricControl::electricControl
     ibar_(nullptr),
     voltage_(nullptr),
     mode_(galvanostaticMode::explicitUpdate),
-    rE_(0)
+    rE_(0),
+    relax_(1),
+    maxStep_(0.05),
+    Vmin_(-GREAT),
+    Vmax_(GREAT),
+    gMin_(1e-8),
+    psiC_()
 {
     if (patchID_ == -1)
     {
@@ -140,7 +159,30 @@ Foam::electricControl::electricControl
         rE_ = gDict.get<scalar>("rE");
 
         Info<< "    galvanostatic: mode " << galvanostaticModeNames[mode_]
-            << ", rE = " << rE_ << endl;
+            << ", rE = " << rE_;
+
+        if (mode_ == galvanostaticMode::implicitUpdate)
+        {
+            relax_ = gDict.getOrDefault<scalar>("relax", 1.0);
+            maxStep_ = gDict.getOrDefault<scalar>("maxStep", 0.05);
+            Vmin_ = gDict.get<scalar>("Vmin");
+            Vmax_ = gDict.get<scalar>("Vmax");
+            gMin_ = gDict.getOrDefault<scalar>("gMin", 1e-8);
+
+            if (relax_ <= 0 || relax_ > 1 || maxStep_ <= 0 || Vmin_ >= Vmax_)
+            {
+                FatalIOErrorInFunction(gDict)
+                    << "Need 0 < relax <= 1, maxStep > 0 and Vmin < Vmax"
+                    << exit(FatalIOError);
+            }
+
+            Info<< " (fallback), relax = " << relax_
+                << ", maxStep = " << maxStep_
+                << " V, V in [" << Vmin_ << ", " << Vmax_ << "] V"
+                << ", gMin = " << gMin_;
+        }
+
+        Info<< endl;
     }
     else
     {
@@ -163,8 +205,12 @@ void Foam::electricControl::beforeSolve()
 
     if (galvanostatic())
     {
-        phi.boundaryFieldRef()[patchID_] ==
-            phiBoundary + rE_*(ibar0 - ibar_->value(t));
+        //- Implicit: the patch value is set after the coupled solve
+        if (mode_ == galvanostaticMode::explicitUpdate)
+        {
+            phi.boundaryFieldRef()[patchID_] ==
+                phiBoundary + rE_*(ibar0 - ibar_->value(t));
+        }
     }
     else
     {
@@ -175,9 +221,117 @@ void Foam::electricControl::beforeSolve()
 }
 
 
-void Foam::electricControl::afterSolve(coupledMatrix& matrix)
+void Foam::electricControl::afterSolve
+(
+    const coupledMatrix& matrix,
+    scalarField& psi,
+    const scalarField& etaE,
+    const dictionary& solverControls
+)
 {
-    //- Explicit update: the patch value was set before the solve
+    //- Explicit update and potentiostatic: the patch value was set before
+    //- the solve
+    if (!needsCoupled())
+    {
+        return;
+    }
+
+    //- Patch value of the solve (psi = phi1)
+    const scalar Vold = Foam::gAverage(eR_.phi_.boundaryField()[patchID_]);
+
+    //- Unit response M phic = c, warm start from the last iteration
+    const scalarField c(matrix.unitSource(patchID_));
+
+    if (psiC_.size() != psi.size())
+    {
+        psiC_.setSize(psi.size(), Zero);
+    }
+
+    solverPerformance perf =
+        matrix.solve(psiC_, c, solverControls, "phiUnit");
+
+    Info<< perf.solverName() << ":  Solving for phiUnit"
+        << ", Initial residual = " << perf.initialResidual()
+        << ", Final residual = " << perf.finalResidual()
+        << ", No Iterations " << perf.nIterations() << endl;
+
+    //- Current of phi1 and its change per volt, in the electron region:
+    //- J_E = -(J* + s (phiE - phiI - eta* - E)), s = r/V
+    const regionTypes::electric& iR = matrix.ion();
+    const scalarField& Vi = iR.V();
+    const scalarField& Jstar = iR.j_;
+    const labelList& pairE = matrix.pairE();
+    const labelList& pairI = matrix.pairI();
+    const scalarField& r = matrix.r();
+    const label nE = matrix.nElectron();
+
+    scalarField J1(eR_.j_);
+    scalarField dJ(eR_.nCells(), Zero);
+
+    forAll(pairI, p)
+    {
+        const label e = pairE[p];
+        const label i = pairI[p];
+        const scalar sp = r[p]/Vi[i];
+
+        J1[e] = -(Jstar[i] + sp*(psi[e] - psi[nE + i] - etaE[i]));
+        dJ[e] = -sp*(psiC_[e] - psiC_[nE + i]);
+    }
+
+    const scalar ibar1 = zoneMean(J1);
+    const scalar g = zoneMean(dJ);
+    const scalar target = ibar_->value(eR_.time().value());
+
+    //- No usable sensitivity: keep phi1, explicit update of the patch
+    if (g > -gMin_)
+    {
+        const scalar V = Vold + rE_*(ibar1 - target);
+
+        setPatchValue(V);
+
+        WarningInFunction
+            << "d ibar/dV = " << g << " >= -gMin = " << -gMin_
+            << ", explicit update with rE = " << rE_ << endl;
+
+        Info<< "Implicit control: ibar1 = " << ibar1
+            << ", g = " << g
+            << ", fallback V = " << V << endl;
+
+        return;
+    }
+
+    //- Newton step on the patch value, limited
+    scalar dV = relax_*(target - ibar1)/g;
+    bool limited = false;
+
+    if (mag(dV) > maxStep_)
+    {
+        dV = sign(dV)*maxStep_;
+        limited = true;
+    }
+
+    scalar V = Vold + dV;
+
+    if (V < Vmin_ || V > Vmax_)
+    {
+        V = min(max(V, Vmin_), Vmax_);
+        limited = true;
+    }
+
+    dV = V - Vold;
+
+    //- Superposition phi = phi1 + dV phic, new patch value
+    psi += dV*psiC_;
+
+    setPatchValue(V);
+
+    Info<< "Implicit control: ibar1 = " << ibar1
+        << ", g = " << g << " A/m2/V"
+        << ", -1/g = " << -1/g << " Ohm m2"
+        << ", dV = " << dV
+        << ", V = " << V
+        << ", ibar = " << ibar1 + g*dV
+        << (limited ? " (limited)" : "") << endl;
 }
 
 

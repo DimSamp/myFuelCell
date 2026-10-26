@@ -35,6 +35,17 @@ Description
 
     Galvanostatic modes:
         explicit:  V += rE (ibar - ibar*) before the solve of each iteration
+        implicit:  (coupled algorithm only) the coupled system is linear in
+                   the patch value V, M phi = b0 + V c. After the normal
+                   solve (phi1, with V_old) a second solve M phic = c gives
+                   the response to +1 V, so phi(V) = phi1 + (V - V_old) phic
+                   and the mean current ibar(V) = ibar1 + g (V - V_old),
+                   g = d ibar/dV. The update
+                       dV = relax (ibar* - ibar1)/g,
+                   limited to +-maxStep and to [Vmin, Vmax], is applied to
+                   phi and to the patch value within the same iteration.
+                   If g >= -gMin the update is skipped and the explicit
+                   update with rE is used instead.
 
     \verbatim
     control
@@ -46,8 +57,15 @@ Description
 
         galvanostatic
         {
-            mode    explicit;
-            rE      1e-5;
+            mode    explicit;       // explicit | implicit
+            rE      1e-5;           // explicit; implicit: fallback
+
+            // implicit only
+            relax   1;              // (0, 1]
+            maxStep 0.05;           // [V]
+            Vmin    0;              // [V]
+            Vmax    1.2;            // [V]
+            gMin    1e-8;           // optional [A/m2/V]
         }
     }
     \endverbatim
@@ -93,7 +111,8 @@ public:
         //- Galvanostatic update
         enum class galvanostaticMode
         {
-            explicitUpdate
+            explicitUpdate,
+            implicitUpdate
         };
 
         static const Enum<galvanostaticMode> galvanostaticModeNames;
@@ -129,11 +148,35 @@ private:
         //- Gain of the explicit update [V m2/A]
         scalar rE_;
 
+        //- Implicit: relaxation of the voltage step, (0, 1]
+        scalar relax_;
+
+        //- Implicit: largest voltage step per iteration [V]
+        scalar maxStep_;
+
+        //- Implicit: bounds of the patch value [V]
+        scalar Vmin_;
+        scalar Vmax_;
+
+        //- Implicit: smallest accepted -d ibar/dV [A/m2/V]
+        scalar gMin_;
+
+        //- Implicit: unit response phic of the last iteration
+        //  (initial guess of the next unit solve)
+        scalarField psiC_;
+
 
     // Private Member Functions
 
+        //- Mean current density through the controlled patch for the
+        //  current J of the electron region
+        scalar zoneMean(const scalarField& J) const;
+
         //- Mean current density through the controlled patch
         scalar ibar() const;
+
+        //- Set a uniform patch value
+        void setPatchValue(const scalar V);
 
         //- No copy construct
         electricControl(const electricControl&) = delete;
@@ -169,15 +212,24 @@ public:
         //- Does the mode need the coupled algorithm?
         bool needsCoupled() const
         {
-            return false;
+            return
+                galvanostatic()
+             && mode_ == galvanostaticMode::implicitUpdate;
         }
 
         //- Update the patch value before the potential solve
         void beforeSolve();
 
-        //- Correct the potentials after the coupled solve
-        //  (nothing to do for the explicit update)
-        void afterSolve(coupledMatrix& matrix);
+        //- Correct the solution psi = [phiE; phiI] of the coupled solve
+        //  and the patch value (implicit mode), before psi is scattered
+        //  and the current is realised
+        void afterSolve
+        (
+            const coupledMatrix& matrix,
+            scalarField& psi,
+            const scalarField& etaE,
+            const dictionary& solverControls
+        );
 };
 
 

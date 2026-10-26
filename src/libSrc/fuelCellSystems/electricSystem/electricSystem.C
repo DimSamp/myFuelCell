@@ -152,11 +152,13 @@ void Foam::electricSystem::solveCoupled()
 
     scalarField psi(matrix_->psi());
 
+    const dictionary& solverControls = iR_.solverDict("phiCoupled");
+
     solverPerformance perf = matrix_->solve
     (
         psi,
         matrix_->source(),
-        iR_.solverDict("phiCoupled")
+        solverControls
     );
 
     Info<< perf.solverName() << ":  Solving for phiCoupled"
@@ -164,9 +166,10 @@ void Foam::electricSystem::solveCoupled()
         << ", Final residual = " << perf.finalResidual()
         << ", No Iterations " << perf.nIterations() << endl;
 
-    matrix_->scatter(psi);
+    //- Implicit galvanostatic control: unit solve and superposition
+    control_->afterSolve(matrix_(), psi, etaE, solverControls);
 
-    control_->afterSolve(matrix_());
+    matrix_->scatter(psi);
 
     //- Realised current, base point of the next iteration
     matrix_->realise(etaE);

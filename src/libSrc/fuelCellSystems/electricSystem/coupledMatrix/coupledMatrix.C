@@ -337,6 +337,59 @@ void Foam::coupledMatrix::assemble
 }
 
 
+Foam::tmp<Foam::scalarField> Foam::coupledMatrix::unitSource
+(
+    const label patchi
+) const
+{
+    if (eR_.phi_.boundaryField()[patchi].coupled())
+    {
+        FatalErrorInFunction
+            << "Patch " << eR_.boundary()[patchi].name() << " of "
+            << eR_.name() << " is coupled"
+            << exit(FatalError);
+    }
+
+    //- Copy of phiE (same patch types) with the patch value 1
+    volScalarField phiUnit
+    (
+        IOobject
+        (
+            "phiUnit",
+            eR_.time().timeName(),
+            eR_,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE,
+            false
+        ),
+        eR_.phi_
+    );
+
+    phiUnit.boundaryFieldRef()[patchi] == scalar(1);
+
+    //- Same operator as in assemble(); only the boundary coefficients of
+    //- the patch are used (the J source and the explicit non-orthogonal
+    //- correction belong to b0)
+    fvScalarMatrix unitEqn
+    (
+      - fvm::laplacian(eR_.sigmaField_, phiUnit, "laplacian(sigma,phi)")
+    );
+
+    tmp<scalarField> tc(new scalarField(nCells_, Zero));
+    scalarField& c = tc.ref();
+
+    const labelUList& fc = eR_.boundary()[patchi].faceCells();
+    const scalarField& bc = unitEqn.boundaryCoeffs()[patchi];
+
+    forAll(fc, f)
+    {
+        c[fc[f]] += bc[f];
+    }
+
+    return tc;
+}
+
+
 Foam::tmp<Foam::scalarField> Foam::coupledMatrix::psi() const
 {
     tmp<scalarField> tpsi(new scalarField(nCells_));
@@ -353,12 +406,13 @@ Foam::solverPerformance Foam::coupledMatrix::solve
 (
     scalarField& psi,
     const scalarField& rhs,
-    const dictionary& solverControls
+    const dictionary& solverControls,
+    const word& fieldName
 ) const
 {
     return lduMatrix::solver::New
     (
-        "phiCoupled",
+        fieldName,
         matrix_(),
         interfaceBouCoeffs_,
         interfaceIntCoeffs_,
