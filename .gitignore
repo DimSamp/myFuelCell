@@ -1,0 +1,5 @@
+lnInclude/
+**/Make/linux64*/
+*.o
+*.dep
+build_*.log
