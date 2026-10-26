@@ -47,6 +47,11 @@ regions/region/regionTypeList.C
 regions/fluid/fluid.C
 regions/solid/solid.C
 regions/electric/electric.C
+
+electricSystem/electricSystem.C
+electricSystem/coupledMatrix/coupledMatrix.C
+electricSystem/electricControl/electricControl.C
+
 sigmaModels/sigmaModel/sigmaModel.C
 sigmaModels/sigmaModel/newSigmaModel.C
 sigmaModels/sigmaModel/sigmaModelList.C

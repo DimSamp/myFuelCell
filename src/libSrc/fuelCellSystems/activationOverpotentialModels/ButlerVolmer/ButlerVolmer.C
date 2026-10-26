@@ -24,6 +24,7 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "ButlerVolmer.H"
+#include "electricSystem.H"
 #include "phaseModel.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
@@ -35,7 +36,8 @@ Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::ButlerVolmer
     const dictionary& dict
 )
 :
-    ActivationOverpotentialModel<Thermo>(phase, dict)
+    ActivationOverpotentialModel<Thermo>(phase, dict),
+    relaxNoted_(false)
 {}
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
@@ -141,16 +143,25 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
     //- The total current: volume averaged
     scalar Rj(0.0);
 
-    //- Coupled phiE-phiI solve (see electric::solveCoupled): the ion
-    //- region then holds dJdEta and etaE. Instead of evaluating j from
-    //- the lagged potentials, the base point is rebuilt from the realised
-    //- current Jr = SI of the last coupled solve (inverse update):
+    //- Coupled phiE-phiI solve (see electricSystem, coupledMatrix): the
+    //- electric system then holds dJdEta and etaE. Instead of evaluating j
+    //- from the lagged potentials, the base point is rebuilt from the
+    //- realised current Jr = SI of the last coupled solve (inverse update):
     //- eta* = G^-1(Jr), dJdEta = G'(eta*), etaE = eta* + E, j = sign(n) Jr
-    const bool coupled =
-        ionPhase.template foundObject<volScalarField>("dJdEta");
+    const electricSystem& electric = this->electricSys();
 
-    if (coupled)
+    if (electric.coupled())
     {
+        if (ionPhase.name() != electric.ionRegionName())
+        {
+            FatalErrorInFunction
+                << "Ion region " << ionPhase.name() << " of zone "
+                << this->zoneName_ << " is not the ion region "
+                << electric.ionRegionName() << " of "
+                << electricSystem::dictName
+                << exit(FatalError);
+        }
+
         if (mag(this->alpha_ - 0.5) > SMALL)
         {
             FatalErrorInFunction
@@ -158,14 +169,17 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
                 << exit(FatalError);
         }
 
-        scalarField& dJdEta = const_cast<volScalarField&>
-        (
-            ionPhase.template lookupObject<volScalarField>("dJdEta")
-        );
-        scalarField& etaE = const_cast<volScalarField&>
-        (
-            ionPhase.template lookupObject<volScalarField>("etaE")
-        );
+        if (!relaxNoted_ && this->dict_.found("relax"))
+        {
+            Info<< "ButlerVolmer " << this->zoneName_ << ": 'relax' is not"
+                << " used by the coupled electric algorithm" << endl;
+        }
+        relaxNoted_ = true;
+
+        scalarField& dJdEta =
+            const_cast<volScalarField&>(electric.dJdEta());
+        scalarField& etaE =
+            const_cast<volScalarField&>(electric.etaE());
 
         forAll(cells, cellI)
         {

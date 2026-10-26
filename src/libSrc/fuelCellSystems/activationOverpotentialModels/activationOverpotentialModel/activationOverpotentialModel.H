@@ -55,6 +55,9 @@ SourceFiles
 
 namespace Foam
 {
+
+class electricSystem;
+
 /*---------------------------------------------------------------------------*\
                            Class activationOverpotentialModel Declaration
 \*---------------------------------------------------------------------------*/
@@ -108,6 +111,13 @@ protected:
 
         //- Create nernst model
         void createNernst();
+
+        //- The electric system (constant/electricProperties)
+        const electricSystem& electricSys() const;
+
+        //- Stop if the electric algorithm is coupled
+        //  (the coupled solve needs the linearised ButlerVolmer kinetics)
+        void checkSegregated() const;
 
 public:
     //- Runtime type information

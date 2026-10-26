@@ -67,6 +67,11 @@ class ButlerVolmer
 :
     public ActivationOverpotentialModel<Thermo>
 {
+    // Private data
+
+        //- The note that 'relax' is unused has been printed (coupled)
+        bool relaxNoted_;
+
 
 public:
     //- Runtime type information

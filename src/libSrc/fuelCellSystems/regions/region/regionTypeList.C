@@ -27,6 +27,7 @@ License
 #include "volFields.H"
 #include "IOdictionary.H"
 #include "fuelCellSystem.H"
+#include "electricSystem.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
@@ -42,6 +43,11 @@ Foam::regionTypeList::regionTypeList
     reset(region_);
 
     active(true);
+
+    if (region_.found("electric"))
+    {
+        electric_.reset(new electricSystem(mesh.time(), *this));
+    }
 }
 
 
@@ -137,6 +143,11 @@ void Foam::regionTypeList::correct()
     {
         this->operator[](i).correct();
     }
+
+    if (electric_.valid())
+    {
+        electric_->correct();
+    }
 }
 
 
@@ -154,6 +165,11 @@ void Foam::regionTypeList::solve()
     forAll(*this, i)
     {
         this->operator[](i).solve();
+    }
+
+    if (electric_.valid())
+    {
+        electric_->solve();
     }
 }
 

@@ -25,6 +25,7 @@ License
 
 #include "activationOverpotentialModel.H"
 #include "phaseSystem.H"
+#include "electricSystem.H"
 #include "constants.H"
 
 // * * * * * * * * * * * * * * * * Static members  * * * * * * * * * * * * * * //
@@ -40,6 +41,29 @@ namespace Foam
 }
 
 // * * * * * * * * * * * * * * * * Protected function  * * * * * * * * * * * * * * //
+
+const Foam::electricSystem& Foam::activationOverpotentialModel::electricSys() const
+{
+    return phase_.mesh().time().lookupObject<electricSystem>
+    (
+        electricSystem::dictName
+    );
+}
+
+
+void Foam::activationOverpotentialModel::checkSegregated() const
+{
+    if (electricSys().coupled())
+    {
+        FatalErrorInFunction
+            << "Zone " << zoneName_ << ": the coupled electric algorithm"
+            << " needs the ButlerVolmer model" << nl
+            << "    Use 'algorithm segregated' in "
+            << electricSystem::dictName
+            << exit(FatalError);
+    }
+}
+
 
 void Foam::activationOverpotentialModel::createNernst()
 {

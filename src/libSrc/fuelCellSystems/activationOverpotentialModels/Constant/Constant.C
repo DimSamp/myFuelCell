@@ -49,6 +49,8 @@ Foam::activationOverpotentialModels::Constant<Thermo>::~Constant()
 template<class Thermo>
 void Foam::activationOverpotentialModels::Constant<Thermo>::correct()
 {
+    this->checkSegregated();
+
     //- Create Nernst model
     this->createNernst();
 

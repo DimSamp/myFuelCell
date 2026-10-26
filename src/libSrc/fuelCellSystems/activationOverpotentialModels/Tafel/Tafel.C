@@ -48,6 +48,8 @@ Foam::activationOverpotentialModels::Tafel<Thermo>::~Tafel()
 template<class Thermo>
 void Foam::activationOverpotentialModels::Tafel<Thermo>::correct()
 {
+    this->checkSegregated();
+
     //- Create Nernst model
     this->createNernst();
 

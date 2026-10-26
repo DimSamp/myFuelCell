@@ -27,9 +27,10 @@ Class
 Description
     The 'electric' region considers electron and ion/proton transfer in electrochemical devices.
     Temperature and thermal properties will be mapped from and mapped to the main domain.
-    Fuel cell and electrolyzer can operate under galvanostatic or potentostatic mode, which means
-    the current density or voltage is prescribed, respectively.
-    Possion equations are solved accordingly in electrically conductive regions.
+    The region holds the potential, current and conductivity fields and the
+    dissolved-water model. The potential equations and the operating control
+    (galvanostatic/potentiostatic) are solved by electricSystem
+    (constant/electricProperties).
 
 SourceFiles
     electric.C
@@ -45,7 +46,6 @@ SourceFiles
 #include "volFields.H"
 #include "wordList.H"
 #include "HashTable.H"
-#include "Function1.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -55,6 +55,9 @@ namespace Foam
 class fuelCellSystem;
 class sigmaModelList;
 class dissolvedModel;
+class electricSystem;
+class coupledMatrix;
+class electricControl;
 
 namespace regionTypes
 {
@@ -89,63 +92,21 @@ private:
         //- Sigma model (electric conductivity)
         autoPtr<sigmaModelList> sigma_;
 
-        //- Relaxation
-        scalar relax_;
-
-        //- Active side?
-        //- Reference side: voltage = 0.0
-        //- Active side: voltage: fixed or calculated
-        Switch control_;
-
         //- Dissolved water
         //- In PEM fuel cell/electrolyzer, water can dissolve from one side
         //- to the other. This process is usually affected by the proton transfer.
         //- Refer to the region of CCM (carbon coated membrane)
         Switch dissolveOnOff_;
+
         autoPtr<dissolvedModel> dissolved_;
 
-        //- Patch name
-        //- The reference boundary for the prescribed current density or voltage
-        word patchName_;
+        //- Stop with a hint if a key moved to electricProperties is found
+        void checkMovedKeys() const;
 
-        //- Zone name
-        //- A reference reacting zone to collect the amount of current flow
-        //- By default, it is the whole domain.
-        word zoneName_;
-
-        //- Cell zone ids <-- zoneName
-        labelList cellZoneIDs_;
-
-        //- Operation mode: (currentCollector_ true)
-        Switch galvanostatic_;
-
-        //- Mean current density
-        //- Make sense when galvanostatic_ is true
-        autoPtr<Function1<scalar>> ibar_;
-
-        //- Voltage
-        //- Make semse when galvanostatic_ is false
-        autoPtr<Function1<scalar>> voltage_;
-
-        //- Coupled phiE-phiI solve (set in the ion region, sub-dict 'coupled')
-        Switch coupled_;
-
-        //- True in the electron region when the ion region solves it
-        bool solvedByCoupler_;
-
-        //- Electron region name (coupled mode)
-        word electronRegion_;
-
-        //- Newton damping of the coupling coefficient, (0, 1]
-        scalar omega_;
-
-        //- Written by ButlerVolmer in coupled mode (ion region, CL cells):
-        //- dJ/deta at the base point [A/V/m3] and eta* + E [V]
-        autoPtr<volScalarField> dJdEta_;
-        autoPtr<volScalarField> etaE_;
-
-        //- One monolithic phiE-phiI solve with Newton-linearised kinetics
-        void solveCoupled();
+        //- The potential equations are assembled and solved here
+        friend class Foam::electricSystem;
+        friend class Foam::coupledMatrix;
+        friend class Foam::electricControl;
 
 public:
         TypeName("electric");
@@ -157,6 +118,7 @@ public:
             const fvMesh& mesh,
             const word& regionName
         );
+
 
     //- Destructor
         virtual ~electric();
@@ -170,7 +132,7 @@ public:
         //- Set reversed delta t
         virtual void setRDeltaT();
 
-        //- Solve PDEs
+        //- Solve PDEs (done by electricSystem)
         virtual void solve();
 
         //- Map heat source/sink to the parent mesh
@@ -180,7 +142,9 @@ public:
         virtual void mapFromCell(fuelCellSystem&);
 };
 
+
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
 } // End namespace regionTypes
 } // End namespace Foam
 

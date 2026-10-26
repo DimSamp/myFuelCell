@@ -59,6 +59,7 @@ namespace Foam
 
 // Forward declaration of friend functions and operators
 class fuelCellSystem;
+class electricSystem;
 
 /*---------------------------------------------------------------------------*\
                       Class regionTypeList Declaration
@@ -87,6 +88,9 @@ protected:
         const fvMesh& mesh_;
 
         regionProperties region_;
+
+        //- Potentials and operating control of the electric regions
+        autoPtr<electricSystem> electric_;
 
 
 public:
