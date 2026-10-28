@@ -96,7 +96,9 @@ Foam::MultiComponentPhaseModel<BasePhaseModel>::MultiComponentPhaseModel
                     IOobject::groupName("X", Y[i].member()),
                     this->mesh().time().timeName(),
                     this->mesh(),
-                    IOobject::NO_READ,
+                    // Read on restart: the kinetics (correctThermo) use X
+                    // before it is updated from Y, i.e. the lagged value
+                    IOobject::READ_IF_PRESENT,
                     IOobject::AUTO_WRITE
                 ),
                 W*Y[i]/Wi

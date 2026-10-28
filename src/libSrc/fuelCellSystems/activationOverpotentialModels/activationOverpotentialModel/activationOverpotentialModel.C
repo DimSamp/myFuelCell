@@ -93,7 +93,7 @@ Foam::activationOverpotentialModel::activationOverpotentialModel
             IOobject::groupName("eta", phase.mesh().name()),
             phase.mesh().time().timeName(),
             phase.mesh(),
-            IOobject::NO_READ,
+            IOobject::READ_IF_PRESENT,
             IOobject::AUTO_WRITE
         ),
         phase.mesh(),

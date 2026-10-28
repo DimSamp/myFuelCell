@@ -81,3 +81,6 @@ fvOptions.correct(U);
 
 thermo.correctRho(psi*p - psip0, rhoMin, rhoMax) ;
 rho = thermo.rho();
+
+// Volumetric flux from the mass flux (fixed-value patches keep their flux)
+phase_.phiRef() = phi/fvc::interpolate(rho);

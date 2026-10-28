@@ -148,7 +148,9 @@ Foam::MovingPhaseModel<BasePhaseModel>::MovingPhaseModel
         (
             IOobject::groupName("alphaRhoPhi", this->name()),
             fluid.mesh().time().timeName(),
-            fluid.mesh()
+            fluid.mesh(),
+            IOobject::READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
         ),
         fluid.mesh(),
         dimensionedScalar("0", dimensionSet(1, 0, -1, 0, 0), 0)
@@ -189,6 +191,19 @@ Foam::MovingPhaseModel<BasePhaseModel>::MovingPhaseModel
     )
 {
     phi_.writeOpt() = IOobject::AUTO_WRITE;
+
+    //- Mass flux: read on restart (the converged, mass-conserving flux of
+    //- the pressure equation), otherwise built from the volumetric flux
+    if (alphaRhoPhi_.typeHeaderOk<surfaceScalarField>(true))
+    {
+        Info<< "Reading mass flux field " << alphaRhoPhi_.name() << endl;
+    }
+    else
+    {
+        Info<< "Calculating mass flux field " << alphaRhoPhi_.name() << endl;
+
+        alphaRhoPhi_ = fvc::interpolate(*this*this->thermo().rho())*phi_;
+    }
 }
 
 
@@ -271,6 +286,14 @@ Foam::MovingPhaseModel<BasePhaseModel>::URef()
 template<class BasePhaseModel>
 Foam::tmp<Foam::surfaceScalarField>
 Foam::MovingPhaseModel<BasePhaseModel>::phi() const
+{
+    return phi_;
+}
+
+
+template<class BasePhaseModel>
+Foam::surfaceScalarField&
+Foam::MovingPhaseModel<BasePhaseModel>::phiRef()
 {
     return phi_;
 }

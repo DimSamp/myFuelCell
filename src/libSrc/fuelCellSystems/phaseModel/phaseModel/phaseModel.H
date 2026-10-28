@@ -241,6 +241,9 @@ public:
             //- Return the volumetric flux
             virtual tmp<surfaceScalarField> phi() const = 0;
 
+            //- Access the volumetric flux
+            virtual surfaceScalarField& phiRef() = 0;
+
             //- Return the mass flux of the phase
             virtual tmp<surfaceScalarField> alphaRhoPhi() const = 0;
 
