@@ -193,16 +193,15 @@ Foam::MovingPhaseModel<BasePhaseModel>::MovingPhaseModel
     phi_.writeOpt() = IOobject::AUTO_WRITE;
 
     //- Mass flux: read on restart (the converged, mass-conserving flux of
-    //- the pressure equation), otherwise built from the volumetric flux
+    //- the pressure equation), otherwise zero until the first pressure solve
     if (alphaRhoPhi_.typeHeaderOk<surfaceScalarField>(true))
     {
         Info<< "Reading mass flux field " << alphaRhoPhi_.name() << endl;
     }
     else
     {
-        Info<< "Calculating mass flux field " << alphaRhoPhi_.name() << endl;
-
-        alphaRhoPhi_ = fvc::interpolate(*this*this->thermo().rho())*phi_;
+        Info<< "Mass flux field " << alphaRhoPhi_.name()
+            << " not found: starting from zero" << endl;
     }
 }
 
