@@ -24,6 +24,7 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "ButlerVolmer.H"
+#include "butlerVolmerInverse.H"
 #include "electricSystem.H"
 #include "phaseModel.H"
 
@@ -37,7 +38,9 @@ Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::ButlerVolmer
 )
 :
     ActivationOverpotentialModel<Thermo>(phase, dict),
-    relaxNoted_(false)
+    relaxNoted_(false),
+    inverseTol_(dict.template getOrDefault<scalar>("inverseTolerance", 1e-12)),
+    inverseMaxIter_(dict.template getOrDefault<label>("inverseMaxIter", 100))
 {}
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
@@ -148,6 +151,10 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
     //- from the lagged potentials, the base point is rebuilt from the
     //- realised current Jr = SI of the last coupled solve (inverse update):
     //- eta* = G^-1(Jr), dJdEta = G'(eta*), etaE = eta* + E, j = sign(n) Jr
+    //- with G(eta) = sign(n) kin (exp(alpha y) - exp(-(1 - alpha) y)),
+    //- y = n F eta/(R T). G has no closed-form inverse for a general
+    //- transfer coefficient alpha; it is inverted cell by cell with
+    //- Newton-Raphson (butlerVolmerInverse)
     const electricSystem& electric = this->electricSys();
 
     if (electric.coupled())
@@ -162,10 +169,11 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
                 << exit(FatalError);
         }
 
-        if (mag(this->alpha_ - 0.5) > SMALL)
+        if (this->alpha_ <= 0 || this->alpha_ >= 1)
         {
             FatalErrorInFunction
-                << "The coupled phiE-phiI solve supports alpha = 0.5 only"
+                << "Zone " << this->zoneName_ << ": alpha = " << this->alpha_
+                << ". The coupled phiE-phiI solve needs 0 < alpha < 1"
                 << exit(FatalError);
         }
 
@@ -181,24 +189,45 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
         scalarField& etaE =
             const_cast<volScalarField&>(electric.etaE());
 
+        //- Cells where the Newton-Raphson inversion did not converge
+        label nFailed = 0;
+
         forAll(cells, cellI)
         {
             const label fluidId = cells[cellI];
             const label ionId =
                 ionPhase.cellMap()[fluidPhase.cellMapIO()[fluidId]];
 
-            //- alpha = 1/2: G(eta) = 2 kin sinh(fh eta), fh = |n| F/(2 R T)
             const scalar kin = Foam::max
             (
                 this->j0_.value()*coeff[fluidId]
                *Foam::pow(s[fluidId], this->gamma_),
                 SMALL*this->j0_.value()
             );
-            const scalar fh = 0.5*mag(n)*F/Rgas/T[fluidId];
+            //- nf = n F/(R T): y = nf eta
+            const scalar nf = n*F/Rgas/T[fluidId];
             const scalar Jr = SI[ionId];
 
-            eta[fluidId] = Foam::asinh(Jr/(2*kin))/fh;
-            dJdEta[ionId] = fh*Foam::sqrt(sqr(2*kin) + sqr(Jr));
+            //- Solve exp(alpha y) - exp(-(1 - alpha) y) = sign(n) Jr/kin
+            scalar dhdy = 1;
+            label nIter = 0;
+            const scalar y = butlerVolmerInverse
+            (
+                sign*Jr/kin,
+                this->alpha_,
+                dhdy,
+                nIter,
+                inverseTol_,
+                inverseMaxIter_
+            );
+
+            if (nIter > inverseMaxIter_)
+            {
+                ++nFailed;
+            }
+
+            eta[fluidId] = y/nf;
+            dJdEta[ionId] = kin*mag(nf)*dhdy;
             etaE[ionId] = eta[fluidId] + nernst[fluidId];
 
             //- Species/heat see no reverse current (as the segregated max)
@@ -208,6 +237,17 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
         }
 
         reduce(Rj, sumOp<scalar>());
+        reduce(nFailed, sumOp<label>());
+
+        if (nFailed)
+        {
+            WarningInFunction
+                << "Zone " << this->zoneName_ << ": the Newton-Raphson"
+                << " inversion of the Butler-Volmer relation did not"
+                << " converge in " << nFailed << " cells (maxIter "
+                << inverseMaxIter_ << ", tolerance " << inverseTol_ << ")"
+                << endl;
+        }
 
         Info << "Total current (A) at " << this->zoneName_
              << ": " << Rj << " (coupled)" << endl;

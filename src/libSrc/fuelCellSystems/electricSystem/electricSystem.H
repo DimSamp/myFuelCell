@@ -35,7 +35,7 @@ Description
                     that moves with the net current (ionReferenceRelax).
         coupled:    one matrix for [phiE; phiI] with the Butler-Volmer
                     kinetics linearised in the catalyst cells (coupledMatrix).
-                    Requires the ButlerVolmer model with alpha = 0.5.
+                    Requires the ButlerVolmer model, 0 < alpha < 1.
 
     \verbatim
     electronRegion  phiE;

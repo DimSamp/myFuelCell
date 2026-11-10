@@ -39,8 +39,21 @@ Description
         \right)
     \f]
 
+    The transfer coefficient alpha (default 0.5) multiplies the dominant
+    branch on both electrodes, because n < 0 and eta < 0 on the cathode.
+
+    With the coupled electric algorithm (electricSystem) the relation is
+    inverted in every catalyst cell, eta = G^-1(J), for 0 < alpha < 1 by
+    Newton-Raphson (butlerVolmerInverse.H). Optional entries:
+
+    \verbatim
+        inverseTolerance    1e-12;  // relative step of y = n F eta/(R T)
+        inverseMaxIter      100;
+    \endverbatim
+
 SourceFiles
     ButlerVolmer.C
+    butlerVolmerInverse.H
 
 \*---------------------------------------------------------------------------*/
 
@@ -71,6 +84,12 @@ class ButlerVolmer
 
         //- The note that 'relax' is unused has been printed (coupled)
         bool relaxNoted_;
+
+        //- Newton-Raphson inversion (coupled): relative step tolerance
+        scalar inverseTol_;
+
+        //- Newton-Raphson inversion (coupled): maximum iterations per cell
+        label inverseMaxIter_;
 
 
 public:
