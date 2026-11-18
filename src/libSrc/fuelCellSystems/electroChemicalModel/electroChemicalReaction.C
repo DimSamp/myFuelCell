@@ -231,7 +231,7 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::R
 
     if (Y.member() == water)
     {
-        return fvm::Sp(phase.iDmdt(water)/(Y + SMALL), Y);      // TODO: is this a good approach.
+        return splitSource(phase.iDmdt(water), Y);
     }
 
     const label specieI =
