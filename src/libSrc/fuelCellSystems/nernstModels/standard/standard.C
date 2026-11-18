@@ -70,6 +70,29 @@ void Foam::nernstModels::standard<Thermo, OtherThermo>::correct()
 
     scalarField pRef = p/this->pRef().value();
 
+    //- Mole fractions from the solved mass fractions,
+    //-     X_i = (Y_i/W_i)/sum_j (Y_j/W_j)   (sum over all species of the phase)
+    //- The phase X fields are updated from Y only after the kinetics
+    //- (correctThermo), so they would give the O2 and H2O of two species
+    //- solves back. The water activity in electroChemicalReaction keeps X
+    const PtrList<volScalarField>& Y = this->thermo_.composition().Y();
+
+    scalarField sumYbyW(nernst.size(), 0.0);
+    forAll(Y, j)
+    {
+        sumYbyW += Y[j].primitiveField()/this->thermo_.composition().W(j);
+    }
+
+    auto moleFraction = [&](const word& name)
+    {
+        const label i = this->thermo_.composition().species()[name];
+
+        return tmp<scalarField>
+        (
+            Y[i].primitiveField()/this->thermo_.composition().W(i)/sumYbyW
+        );
+    };
+
     forAllConstIter(HashTable<scalar>, this->rxnList(), iter)
     {
         const word& nameI = iter.key();
@@ -92,7 +115,7 @@ void Foam::nernstModels::standard<Thermo, OtherThermo>::correct()
                     stoiCoeffI*this->thermo_.composition().S(speciesI, p[cellI], T[cellI])*Wi*T[cellI];
             }
 
-            const scalarField& X = phase1_.X(nameI);
+            const scalarField X(moleFraction(nameI));
 
             Qrxn *= Foam::pow(Foam::max(X, this->residualY())*pRef, stoiCoeffI);
         }
@@ -123,7 +146,7 @@ void Foam::nernstModels::standard<Thermo, OtherThermo>::correct()
 
         if (phase1_.name() == phase2_.name())
         {
-            const scalarField& X = phase1_.X(water);
+            const scalarField X(moleFraction(water));
 
             Qrxn *= Foam::pow(Foam::max(X, 1.0e-6)*pRef, stoiCoeffI);
         }
