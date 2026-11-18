@@ -262,13 +262,21 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
         reduce(sumJ, sumOp<scalar>());
         reduce(sumRhoJ, sumOp<scalar>());
 
-        //- Zone normalisation: sum(V sign Jr) = sum(V sign SI)
-        const scalar a =
-        (
-            (sumJ > VSMALL && sumRhoJ > VSMALL)
-          ? sumJ/sumRhoJ
-          : scalar(1)
-        );
+        //- Zone normalisation: sum(V sign Jr) = sum(V sign SI).
+        //- If either sum is <= VSMALL (no current yet, or reverse current
+        //- outweighs the rescaled one), the rescale is skipped for this
+        //- zone in this iteration: rho = 1, a = 1, Jr = SI in every cell
+        const bool rescale = (sumJ > VSMALL && sumRhoJ > VSMALL);
+        const scalar a = (rescale ? sumJ/sumRhoJ : scalar(1));
+
+        if (!rescale)
+        {
+            rhoZ = scalar(1);
+
+            Info<< "ButlerVolmer " << this->zoneName_
+                << ": rescale skipped (sum V J = " << sumJ
+                << ", sum V rho J = " << sumRhoJ << ")" << endl;
+        }
 
         //- Cells where the Newton-Raphson inversion did not converge
         label nFailed = 0;
