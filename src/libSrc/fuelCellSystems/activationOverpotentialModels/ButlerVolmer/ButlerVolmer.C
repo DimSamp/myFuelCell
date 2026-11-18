@@ -127,12 +127,14 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
     const scalarField& T = this->thermo_.T();
     const scalarField& s = this->phase_;
 
-    //- Mixture mole fraction
-    const scalarField W(this->thermo_.W()/1000.0);
     //- Mixture density
     const scalarField& rho= this->phase_.thermo().rho();
-    //- Store values for all species
 
+    //- Concentration factor of the rate constant, prod (c_i/cRef)^ksi, with
+    //- the molar concentration c_i = Y_i rho/W_i (= X_i rho/W). Y_i is the
+    //- field the species equation solves, so the kinetics see the O2 of the
+    //- last species solve. X is updated from Y only after the kinetics
+    //- (correctThermo) and would lag one species solve more
     scalarField coeff(this->phase_.mesh().nCells(), 1.0);
     //- Loop for all relative species
     forAllConstIter(dictionary, this->species_, iter)
@@ -145,9 +147,13 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
             scalar ksi = readScalar(dict0.lookup("ksi"));
             scalar cRef = readScalar(dict0.lookup("cRef"));
 
-            const scalarField& X = this->phase_.X(name);
+            const label speciei =
+                this->thermo_.composition().species()[name];
+            const scalarField& Yi = this->thermo_.composition().Y(speciei);
+            //- Species molar mass, kg/kmol -> kg/mol
+            const scalar Wi = this->thermo_.composition().W(speciei)/1000.0;
 
-            coeff *= Foam::pow(X*rho/W/cRef, ksi);
+            coeff *= Foam::pow(Yi*rho/Wi/cRef, ksi);
         }
     }
 
