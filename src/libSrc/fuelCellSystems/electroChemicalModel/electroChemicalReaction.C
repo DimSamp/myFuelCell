@@ -83,6 +83,24 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::splitSource
     const dimensionedScalar w0(w.dimensions(), Zero);
     const dimensionedScalar Ymin(dimless, sinkYmin_);
 
+    //- Cells where the bound of the implicit coefficient acts
+    label n = 0;
+    forAll(Y, celli)
+    {
+        if (w[celli] < 0 && Y[celli] + SMALL < sinkYmin_)
+        {
+            ++n;
+        }
+    }
+
+    const label nCapped = returnReduce(n, sumOp<label>());
+
+    if (nCapped > 0)
+    {
+        Info<< "R(" << Y.mesh().name() << '/' << Y.member() << "): "
+            << nCapped << " cells below sinkYmin" << endl;
+    }
+
     //- Production (w > 0): explicit.
     //- Consumption (w < 0): implicit, coefficient w/max(Y + SMALL, Ymin),
     //- so its magnitude never exceeds abs(w)/Ymin
