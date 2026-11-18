@@ -40,7 +40,8 @@ Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::ButlerVolmer
     ActivationOverpotentialModel<Thermo>(phase, dict),
     relaxNoted_(false),
     inverseTol_(dict.template getOrDefault<scalar>("inverseTolerance", 1e-12)),
-    inverseMaxIter_(dict.template getOrDefault<label>("inverseMaxIter", 100))
+    inverseMaxIter_(dict.template getOrDefault<label>("inverseMaxIter", 100)),
+    kinOld_(phase.mesh().nCells(), Zero)
 {}
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
@@ -149,7 +150,10 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
     //- Coupled phiE-phiI solve (see electricSystem, coupledMatrix): the
     //- electric system then holds dJdEta and etaE. Instead of evaluating j
     //- from the lagged potentials, the base point is rebuilt from the
-    //- realised current Jr = SI of the last coupled solve (inverse update):
+    //- realised current of the last coupled solve, SI, rescaled with the
+    //- change of the rate constant at the same overpotential:
+    //- Jr = SI kin/kinOld, written back to SI and SE (-Jr), the base current
+    //- of the assembly. Then (inverse update)
     //- eta* = G^-1(Jr), dJdEta = G'(eta*), etaE = eta* + E, j = sign(n) Jr
     //- with G(eta) = sign(n) kin (exp(alpha y) - exp(-(1 - alpha) y)),
     //- y = n F eta/(R T). G has no closed-form inverse for a general
@@ -206,7 +210,21 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
             );
             //- nf = n F/(R T): y = nf eta
             const scalar nf = n*F/Rgas/T[fluidId];
-            const scalar Jr = SI[ionId];
+
+            const label electronId =
+                electronPhase.cellMap()[fluidPhase.cellMapIO()[fluidId]];
+
+            //- Rescale the carried current with the change of the rate
+            //- constant, at the same overpotential: Jr was realised with
+            //- kinOld. kinOld = 0 (first iteration of a run, also after a
+            //- restart): ratio 1
+            const scalar kinRatio =
+                kinOld_[fluidId] > 0 ? kin/kinOld_[fluidId] : scalar(1);
+            kinOld_[fluidId] = kin;
+
+            const scalar Jr = SI[ionId]*kinRatio;
+            SI[ionId] = Jr;
+            SE[electronId] = -Jr;
 
             //- Solve exp(alpha y) - exp(-(1 - alpha) y) = sign(n) Jr/kin
             scalar dhdy = 1;
