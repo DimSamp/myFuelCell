@@ -218,6 +218,20 @@ void Foam::electricControl::beforeSolve()
     }
 
     Info << "ibar: " << ibar0 << "\t"<< "voltage: " << Foam::gAverage(phiBoundary) << endl;
+
+    //- Relative error of the realised current, as the function-object
+    //- result ibarErr of object electricControl (read by convTests and
+    //- runTimeControl).  Galvanostatic only: potentiostatic has no target.
+    if (galvanostatic())
+    {
+        const_cast<Time&>(eR_.time()).functionObjects().propsDict()
+            .setObjectResult
+            (
+                word("electricControl"),
+                word("ibarErr"),
+                mag(ibar0/ibar_->value(t) - 1)
+            );
+    }
 }
 
 
