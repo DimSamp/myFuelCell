@@ -47,7 +47,8 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::electroChemical
     ThermoCombustion<ReactionThermo>(modelType, thermo, turb),
     thermo_(thermo),
     saturation_(saturationModel::New(this->subDict("saturation"), this->mesh())),
-    dissolved_(this->template lookupOrDefault<Switch>("dissolved", true))
+    dissolved_(this->template lookupOrDefault<Switch>("dissolved", true)),
+    sinkYmin_(this->template getOrDefault<scalar>("sinkYmin", 1e-6))
 {
     //- Get current phase Model
     const phaseModel& phase = this->mesh().template
@@ -58,6 +59,9 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::electroChemical
 
     //- Activation overpotential model
     eta_ = activationOverpotentialModel::New(phase, this->subDict("activationOverpotentialModel"));
+
+    Info<< "electroChemicalReaction " << this->mesh().name()
+        << ": sinkYmin = " << sinkYmin_ << endl;
 }
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
@@ -65,6 +69,28 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::electroChemical
 template<class ReactionThermo>
 Foam::combustionModels::electroChemicalReaction<ReactionThermo>::~electroChemicalReaction()
 {}
+
+// * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * * //
+
+template<class ReactionThermo>
+Foam::tmp<Foam::fvScalarMatrix>
+Foam::combustionModels::electroChemicalReaction<ReactionThermo>::splitSource
+(
+    const volScalarField& w,
+    volScalarField& Y
+) const
+{
+    const dimensionedScalar w0(w.dimensions(), Zero);
+    const dimensionedScalar Ymin(dimless, sinkYmin_);
+
+    //- Production (w > 0): explicit.
+    //- Consumption (w < 0): implicit, coefficient w/max(Y + SMALL, Ymin),
+    //- so its magnitude never exceeds abs(w)/Ymin
+    return
+        fvm::Su(max(w, w0), Y)
+      + fvm::Sp(min(w, w0)/max(Y + SMALL, Ymin), Y);
+}
+
 
 // * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * * //
 template<class ReactionThermo>
@@ -237,7 +263,7 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::R
 
     iDmdt = wSpecie;
 
-    return fvm::Sp(wSpecie/(Y + SMALL), Y);     // TODO: is this a good approach.
+    return splitSource(wSpecie, Y);
 }
 
 

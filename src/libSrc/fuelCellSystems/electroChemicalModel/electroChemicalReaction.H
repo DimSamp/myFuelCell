@@ -84,6 +84,28 @@ protected:
         //- Dissolved on/off
         Switch dissolved_;
 
+private:
+
+    // Private Data
+
+        //- Lower bound of Y in the implicit coefficient of a consumed
+        //- species (optional entry sinkYmin, default 1e-6): the magnitude
+        //- of the coefficient never exceeds abs(w)/sinkYmin
+        scalar sinkYmin_;
+
+
+    // Private Member Functions
+
+        //- Species source matrix from the mass source w [kg/m3/s]:
+        //- production (w > 0) explicit, consumption (w < 0) implicit with
+        //- the coefficient w/max(Y + SMALL, sinkYmin)
+        tmp<fvScalarMatrix> splitSource
+        (
+            const volScalarField& w,
+            volScalarField& Y
+        ) const;
+
+
 public:
     //- Runtime type information
     TypeName("electroChemicalReaction");
