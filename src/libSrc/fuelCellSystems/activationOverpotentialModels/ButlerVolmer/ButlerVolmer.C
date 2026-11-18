@@ -40,7 +40,25 @@ Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::ButlerVolmer
     ActivationOverpotentialModel<Thermo>(phase, dict),
     relaxNoted_(false),
     inverseTol_(dict.template getOrDefault<scalar>("inverseTolerance", 1e-12)),
-    inverseMaxIter_(dict.template getOrDefault<label>("inverseMaxIter", 100))
+    inverseMaxIter_(dict.template getOrDefault<label>("inverseMaxIter", 100)),
+    kinOld_
+    (
+        IOobject
+        (
+            IOobject::groupName("kinOld", phase.mesh().name()),
+            phase.mesh().time().timeName(),
+            phase.mesh(),
+            IOobject::READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        phase.mesh(),
+        dimensionedScalar
+        (
+            "kinOld",
+            dimCurrent/dimVolume,
+            0.0
+        )
+    )
 {}
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
@@ -149,7 +167,19 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
     //- Coupled phiE-phiI solve (see electricSystem, coupledMatrix): the
     //- electric system then holds dJdEta and etaE. Instead of evaluating j
     //- from the lagged potentials, the base point is rebuilt from the
-    //- realised current Jr = SI of the last coupled solve (inverse update):
+    //- realised current SI of the last coupled solve, redistributed over
+    //- the zone with the change of the rate constant (zone-normalised
+    //- rescale). Per cell rho = kin/kinOld (1 where kinOld = 0, as on the
+    //- first iteration of a cold start), with J = sign(n) SI > 0 and V the
+    //- cell volume, summed over the zone on all ranks:
+    //-     a = sum(V J)/sum(V rho J),  Jr = a rho SI
+    //- Jr is written back to SI and SE (-Jr), the base current of the
+    //- assembly. The zone total stays the realised total, so the species
+    //- solve, which runs before the electric solve, consumes exactly the
+    //- cell current; only its distribution follows the rate constants. In
+    //- the Tafel range a equals a uniform overpotential shift of
+    //- ln(a)/(alpha |nf|), the correction the galvanostat would apply.
+    //- Then (inverse update)
     //- eta* = G^-1(Jr), dJdEta = G'(eta*), etaE = eta* + E, j = sign(n) Jr
     //- with G(eta) = sign(n) kin (exp(alpha y) - exp(-(1 - alpha) y)),
     //- y = n F eta/(R T). G has no closed-form inverse for a general
@@ -189,8 +219,15 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
         scalarField& etaE =
             const_cast<volScalarField&>(electric.etaE());
 
-        //- Cells where the Newton-Raphson inversion did not converge
-        label nFailed = 0;
+        scalarField& kinOld = kinOld_;
+
+        //- Pass 1: rate constant kin and its change rho = kin/kinOld per
+        //- zone cell, and the zone sums of the realised current without and
+        //- with rho
+        scalarField kinZ(cells.size());
+        scalarField rhoZ(cells.size());
+        scalar sumJ = 0;
+        scalar sumRhoJ = 0;
 
         forAll(cells, cellI)
         {
@@ -204,9 +241,49 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
                *Foam::pow(s[fluidId], this->gamma_),
                 SMALL*this->j0_.value()
             );
+            const scalar kinRatio =
+                kinOld[fluidId] > 0 ? kin/kinOld[fluidId] : scalar(1);
+
+            kinZ[cellI] = kin;
+            rhoZ[cellI] = kinRatio;
+
+            //- kinRatio = 1: both terms are bitwise equal
+            const scalar VJ = fluidPhase.V()[fluidId]*sign*SI[ionId];
+            sumJ += VJ;
+            sumRhoJ += VJ*kinRatio;
+        }
+
+        reduce(sumJ, sumOp<scalar>());
+        reduce(sumRhoJ, sumOp<scalar>());
+
+        //- Zone normalisation: sum(V sign Jr) = sum(V sign SI)
+        const scalar a =
+        (
+            (sumJ > VSMALL && sumRhoJ > VSMALL)
+          ? sumJ/sumRhoJ
+          : scalar(1)
+        );
+
+        //- Cells where the Newton-Raphson inversion did not converge
+        label nFailed = 0;
+
+        //- Pass 2: rescaled base current and the inverse update
+        forAll(cells, cellI)
+        {
+            const label fluidId = cells[cellI];
+            const label ionId =
+                ionPhase.cellMap()[fluidPhase.cellMapIO()[fluidId]];
+            const label electronId =
+                electronPhase.cellMap()[fluidPhase.cellMapIO()[fluidId]];
+
+            const scalar kin = kinZ[cellI];
             //- nf = n F/(R T): y = nf eta
             const scalar nf = n*F/Rgas/T[fluidId];
-            const scalar Jr = SI[ionId];
+
+            const scalar Jr = SI[ionId]*rhoZ[cellI]*a;
+            SI[ionId] = Jr;
+            SE[electronId] = -Jr;
+            kinOld[fluidId] = kin;
 
             //- Solve exp(alpha y) - exp(-(1 - alpha) y) = sign(n) Jr/kin
             scalar dhdy = 1;
@@ -250,7 +327,7 @@ void Foam::activationOverpotentialModels::ButlerVolmer<Thermo>::correct()
         }
 
         Info << "Total current (A) at " << this->zoneName_
-             << ": " << Rj << " (coupled)" << endl;
+             << ": " << Rj << " (coupled), a = " << a << endl;
 
         return;
     }

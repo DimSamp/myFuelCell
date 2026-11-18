@@ -91,6 +91,11 @@ class ButlerVolmer
         //- Newton-Raphson inversion (coupled): maximum iterations per cell
         label inverseMaxIter_;
 
+        //- Rate constant kin of the last coupled iteration, per fluid cell
+        //- (coupled; catalyst zone cells). Zero where it was never set:
+        //- the rate change of such a cell is taken as 1. Read on restart
+        volScalarField kinOld_;
+
 
 public:
     //- Runtime type information
