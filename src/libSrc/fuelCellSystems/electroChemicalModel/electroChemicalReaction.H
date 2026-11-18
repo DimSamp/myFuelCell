@@ -89,7 +89,7 @@ private:
     // Private Data
 
         //- Lower bound of Y in the implicit coefficient of a consumed
-        //- species (optional entry sinkYmin, default 1e-6): the magnitude
+        //- species (optional entry sinkYmin, default 1e-10): the magnitude
         //- of the coefficient never exceeds abs(w)/sinkYmin
         scalar sinkYmin_;
 

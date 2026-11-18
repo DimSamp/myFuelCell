@@ -48,7 +48,7 @@ Foam::combustionModels::electroChemicalReaction<ReactionThermo>::electroChemical
     thermo_(thermo),
     saturation_(saturationModel::New(this->subDict("saturation"), this->mesh())),
     dissolved_(this->template lookupOrDefault<Switch>("dissolved", true)),
-    sinkYmin_(this->template getOrDefault<scalar>("sinkYmin", 1e-6))
+    sinkYmin_(this->template getOrDefault<scalar>("sinkYmin", 1e-10))
 {
     //- Get current phase Model
     const phaseModel& phase = this->mesh().template
